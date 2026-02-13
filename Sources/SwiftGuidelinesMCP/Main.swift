@@ -65,6 +65,11 @@ struct SwiftGuidelinesMCP {
         }
     }
 
+    /// swift.org から Swift API Design Guidelines を取得します。
+    ///
+    /// - Parameter section: 任意のセクション名（例: "Naming", "Clarity"）。`nil` の場合は全文を返します。
+    /// - Returns: ガイドラインのプレーンテキスト。
+    /// - Throws: URL不正、ネットワーク失敗、文字コード変換失敗時に `GuidelinesError` を送出します。
     static func fetchSwiftGuidelines(section: String?) async throws -> String {
         let urlString = "https://swift.org/documentation/api-design-guidelines/"
         guard let url = URL(string: urlString) else {
@@ -83,72 +88,77 @@ struct SwiftGuidelinesMCP {
             throw GuidelinesError.encodingError
         }
 
-        return extractGuidelinesText(from: html, section: section)
+        return guidelinesText(from: html, section: section)
     }
 
-    static func extractGuidelinesText(from html: String, section: String?) -> String {
+    /// HTML からガイドライン本文のプレーンテキストを生成し、必要に応じて指定セクションに絞って返します。
+    ///
+    /// - Parameters:
+    ///   - html: 生のHTML文字列（例: `<main>` や `<body>` の内容）。
+    ///   - section: 任意のセクション名。`nil` の場合は抽出した全文を返します。
+    /// - Returns: HTMLタグ除去とエンティティ展開を行ったプレーンテキスト。
+    static func guidelinesText(from html: String, section: String?) -> String {
         // 簡単なHTMLパース: <main>タグまたは記事部分を抽出
-        // まず、<main>タグの内容を探す
         if let mainRange = html.range(of: "<main", options: .caseInsensitive) {
             let afterMain = String(html[mainRange.upperBound...])
             if let mainEndRange = afterMain.range(of: "</main>", options: .caseInsensitive) {
                 let mainContent = String(afterMain[..<mainEndRange.lowerBound])
-                let text = stripHTMLTags(from: mainContent)
+                let text = plainText(from: mainContent)
 
                 if let section {
-                    return extractSection(from: text, sectionName: section)
+                    return sectionContent(named: section, from: text)
                 }
                 return text
             }
         }
 
-        // <main>タグが見つからない場合は、<article>や<body>から探す
         if let bodyRange = html.range(of: "<body", options: .caseInsensitive) {
             let afterBody = String(html[bodyRange.upperBound...])
             if let bodyEndRange = afterBody.range(of: "</body>", options: .caseInsensitive) {
                 let bodyContent = String(afterBody[..<bodyEndRange.lowerBound])
-                let text = stripHTMLTags(from: bodyContent)
+                let text = plainText(from: bodyContent)
 
                 if let section {
-                    return extractSection(from: text, sectionName: section)
+                    return sectionContent(named: section, from: text)
                 }
                 return text
             }
         }
 
-        // HTMLタグが見つからない場合は、タグを除去した全文を返す
-        let text = stripHTMLTags(from: html)
+        let text = plainText(from: html)
         if let section {
-            return extractSection(from: text, sectionName: section)
+            return sectionContent(named: section, from: text)
         }
         return text
     }
 
-    static func stripHTMLTags(from html: String) -> String {
+    /// HTMLタグ除去とエンティティ展開を行い、改行を保持したプレーンテキストを返します。
+    ///
+    /// - Parameter html: 変換対象のHTML文字列。
+    /// - Returns: プレーンテキスト。改行は保持し、行内の連続した空白（スペース・タブ）のみを圧縮します。
+    static func plainText(from html: String) -> String {
         var text = html
-        // HTMLタグを除去
         text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        // HTMLエンティティをデコード
         text = text.replacingOccurrences(of: "&nbsp;", with: " ")
         text = text.replacingOccurrences(of: "&lt;", with: "<")
         text = text.replacingOccurrences(of: "&gt;", with: ">")
         text = text.replacingOccurrences(of: "&amp;", with: "&")
         text = text.replacingOccurrences(of: "&quot;", with: "\"")
         text = text.replacingOccurrences(of: "&#39;", with: "'")
-        // 複数の空白を1つに
-        text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        // 前後の空白を削除
+        // 改行は保持し、行内の連続スペース・タブのみ単一スペースに
+        text = text.replacingOccurrences(of: "[ \t]+", with: " ", options: .regularExpression)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func extractSection(from text: String, sectionName: String) -> String {
-        // セクション名で検索（大文字小文字を区別しない）
-        let searchPattern = sectionName
-        if let range = text.range(of: searchPattern, options: .caseInsensitive) {
-            let startIndex = range.lowerBound
-            // セクションが見つかった位置から、次の大文字で始まる行または一定の文字数までを返す
-            let sectionStart = String(text[startIndex...])
-            // 最初の数行を返す（簡易実装）
+    /// プレーンテキストから指定セクションの内容を返します。見つからない場合は代替メッセージを返します。
+    ///
+    /// - Parameters:
+    ///   - sectionName: 検索するセクション名（大文字小文字は区別しません）。
+    ///   - text: 検索対象のプレーンテキスト。
+    /// - Returns: 一致位置から最大50行のセクション本文、またはテキスト先頭を含む代替メッセージ。
+    static func sectionContent(named sectionName: String, from text: String) -> String {
+        if let range = text.range(of: sectionName, options: .caseInsensitive) {
+            let sectionStart = String(text[range.lowerBound...])
             let lines = sectionStart.components(separatedBy: .newlines)
             let relevantLines = Array(lines.prefix(50)).joined(separator: "\n")
             return "セクション \"\(sectionName)\" に関する内容:\n\n\(relevantLines)"
@@ -157,6 +167,7 @@ struct SwiftGuidelinesMCP {
     }
 }
 
+/// Swift API Design Guidelines の取得・処理時に発生しうるエラー。
 enum GuidelinesError: LocalizedError {
     case invalidURL
     case networkError(String)
