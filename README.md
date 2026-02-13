@@ -11,7 +11,7 @@ Swift API Design Guidelinesを読み込めるMCP (Model Context Protocol) サー
 ## 必要な環境
 
 - macOS 13.0以降
-- Swift 5.10以降
+- Swift 6.0以降（Xcode 16以降）
 
 ## ビルド方法
 
@@ -60,7 +60,7 @@ Cursorのチャットで、`@swift-guidelines` または `@swift-api-guidelines`
 
 ## 技術スタック
 
-- **言語**: Swift 5.10+
+- **言語**: Swift 6.0+
 - **フレームワーク**: [MCP Swift SDK](https://github.com/modelcontextprotocol/swift-sdk)
 - **通信方式**: stdio (標準入出力)
 
