@@ -78,10 +78,11 @@ struct SwiftGuidelinesMCP {
 
         let (data, response) = try await URLSession.shared.data(from: url)
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200
-        else {
-            throw GuidelinesError.networkError("HTTPリクエストが失敗しました")
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GuidelinesError.networkError("HTTPレスポンスが取得できませんでした")
+        }
+        guard httpResponse.statusCode == 200 else {
+            throw GuidelinesError.networkError("HTTPリクエストが失敗しました（ステータスコード: \(httpResponse.statusCode)）")
         }
 
         guard let html = String(data: data, encoding: .utf8) else {
@@ -100,9 +101,13 @@ struct SwiftGuidelinesMCP {
     static func guidelinesText(from html: String, section: String?) -> String {
         // 簡単なHTMLパース: <main>タグまたは記事部分を抽出
         if let mainRange = html.range(of: "<main", options: .caseInsensitive) {
-            let afterMain = String(html[mainRange.upperBound...])
-            if let mainEndRange = afterMain.range(of: "</main>", options: .caseInsensitive) {
-                let mainContent = String(afterMain[..<mainEndRange.lowerBound])
+            let afterTag = String(html[mainRange.upperBound...])
+            // 開始タグの閉じ `>` の直後から内容を開始（属性を除外）
+            if let gtRange = afterTag.range(of: ">"),
+               let mainEndRange = afterTag.range(of: "</main>", options: .caseInsensitive),
+               gtRange.upperBound <= mainEndRange.lowerBound
+            {
+                let mainContent = String(afterTag[gtRange.upperBound ..< mainEndRange.lowerBound])
                 let text = plainText(from: mainContent)
 
                 if let section {
@@ -113,9 +118,13 @@ struct SwiftGuidelinesMCP {
         }
 
         if let bodyRange = html.range(of: "<body", options: .caseInsensitive) {
-            let afterBody = String(html[bodyRange.upperBound...])
-            if let bodyEndRange = afterBody.range(of: "</body>", options: .caseInsensitive) {
-                let bodyContent = String(afterBody[..<bodyEndRange.lowerBound])
+            let afterTag = String(html[bodyRange.upperBound...])
+            // 開始タグの閉じ `>` の直後から内容を開始（属性を除外）
+            if let gtRange = afterTag.range(of: ">"),
+               let bodyEndRange = afterTag.range(of: "</body>", options: .caseInsensitive),
+               gtRange.upperBound <= bodyEndRange.lowerBound
+            {
+                let bodyContent = String(afterTag[gtRange.upperBound ..< bodyEndRange.lowerBound])
                 let text = plainText(from: bodyContent)
 
                 if let section {
@@ -151,12 +160,30 @@ struct SwiftGuidelinesMCP {
     }
 
     /// プレーンテキストから指定セクションの内容を返します。見つからない場合は代替メッセージを返します。
+    /// 見出し風の行頭一致を優先し、文中の誤マッチを避けます。
     ///
     /// - Parameters:
     ///   - sectionName: 検索するセクション名（大文字小文字は区別しません）。
     ///   - text: 検索対象のプレーンテキスト。
     /// - Returns: 一致位置から最大50行のセクション本文、またはテキスト先頭を含む代替メッセージ。
     static func sectionContent(named sectionName: String, from text: String) -> String {
+        let lowerName = sectionName.lowercased()
+        let lines = text.components(separatedBy: .newlines)
+
+        // 見出し風の行頭一致を優先（行頭の空白・記号の後にセクション名が来る場合）
+        if let idx = lines.firstIndex(where: { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowerTrimmed = trimmed.lowercased()
+            guard lowerTrimmed.hasPrefix(lowerName) else { return false }
+            let afterPrefix = lowerTrimmed.dropFirst(lowerName.count)
+            return afterPrefix.isEmpty || afterPrefix.first.map { $0.isWhitespace || $0 == ":" || $0 == ")" } ?? false
+        }) {
+            let sectionStart = lines[idx...].joined(separator: "\n")
+            let relevantLines = Array(sectionStart.components(separatedBy: .newlines).prefix(50)).joined(separator: "\n")
+            return "セクション \"\(sectionName)\" に関する内容:\n\n\(relevantLines)"
+        }
+
+        // フォールバック: 広い検索（行頭一致が見つからない場合）
         if let range = text.range(of: sectionName, options: .caseInsensitive) {
             let sectionStart = String(text[range.lowerBound...])
             let lines = sectionStart.components(separatedBy: .newlines)
