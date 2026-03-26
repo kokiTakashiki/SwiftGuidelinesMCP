@@ -1,12 +1,17 @@
-.PHONY: help setup upgrade format generate open
+.PHONY: help build setup upgrade format generate open
 
 # デフォルトターゲット - ヘルプの表示
 help:
 	@echo "利用可能なコマンド:"
+	@echo "  make build    - リリースビルドします（swift build -c release）"
 	@echo "  make setup    - 開発環境をセットアップします（SwiftFormat & XcodeGen）"
 	@echo "  make upgrade  - 開発環境ツールをアップグレードします（SwiftFormat & XcodeGen）"
 	@echo "  make format   - SwiftFormatでコードをフォーマットします"
 	@echo "  make help     - このヘルプを表示します"
+
+# リリースビルド（実行ファイルは .build/release/SwiftGuidelinesMCP）
+build:
+	swift build -c release
 
 # 開発環境のセットアップ（SwiftFormat & XcodeGen）
 setup:

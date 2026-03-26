@@ -16,7 +16,7 @@ Swift API Design Guidelinesを読み込めるMCP (Model Context Protocol) サー
 ## ビルド方法
 
 ```bash
-swift build -c release
+make build
 ```
 
 実行ファイルは `.build/release/SwiftGuidelinesMCP` に生成されます。
@@ -98,7 +98,7 @@ SwiftGuidelinesMCP/
 サーバーが正常に起動しない場合は、ビルドが正しく行われているか確認してください：
 
 ```bash
-swift build -c release
+make build
 ```
 
 ### ガイドラインが取得できない
