@@ -10,40 +10,11 @@ struct SwiftGuidelinesMCP {
             capabilities: .init(tools: .init())
         )
 
-        await server.withMethodHandler(ListTools.self) { _ in
-            ListTools.Result(tools: [Self.readGuidelinesTool])
-        }
-
-        await server.withMethodHandler(CallTool.self) { params in
-            guard params.name == "readSwiftGuidelines" else {
-                return CallTool.Result(
-                    content: [.text(text: "Tool not found", annotations: nil, _meta: nil)],
-                    isError: true
-                )
-            }
-            let scope = FetchScope(requestedSection: params.arguments?["section"]?.stringValue)
-            do {
-                let text = try await GuidelinesFetcher().fetch(scope: scope)
-                return CallTool.Result(
-                    content: [.text(text: text, annotations: nil, _meta: nil)],
-                    isError: false
-                )
-            } catch {
-                return CallTool.Result(
-                    content: [.text(text: "エラー: \(error.localizedDescription)", annotations: nil, _meta: nil)],
-                    isError: true
-                )
-            }
-        }
+        await registerHandlers(on: server)
 
         do {
             try await server.start(transport: StdioTransport())
-            // MCP swift-sdk の Server.start() はサーバを内部タスクで起動して即座に返るため、
-            // 呼び出し側でプロセス寿命を保持する責務がある。sleep(1s) は CPU 負荷を抑えるための
-            // 任意の間隔で、機能的な意味は持たない。
-            while true {
-                try await Task.sleep(for: .seconds(1))
-            }
+            try await runForever()
         } catch {
             // StdioTransport 使用時は stdout が JSON-RPC に占有されるため、診断出力は stderr に書く。
             let message = "サーバーの起動に失敗しました: \(error)\n"
@@ -51,7 +22,37 @@ struct SwiftGuidelinesMCP {
         }
     }
 
-    private static let readGuidelinesTool = Tool(
+    /// MCP サーバに公開するツールと、その呼び出しディスパッチを登録する。
+    /// ツール追加時はここに一覧を増やし、`GuidelinesToolHandler` に倣って専用ハンドラ型を追加する。
+    private static func registerHandlers(on server: Server) async {
+        let guidelinesHandler = GuidelinesToolHandler()
+
+        await server.withMethodHandler(ListTools.self) { _ in
+            ListTools.Result(tools: [GuidelinesToolHandler.toolDefinition])
+        }
+
+        await server.withMethodHandler(CallTool.self) { params in
+            await guidelinesHandler.handle(params: params)
+        }
+    }
+
+    /// MCP swift-sdk の `Server.start()` はサーバを内部タスクで起動して即座に返るため、
+    /// 呼び出し側でプロセス寿命を保持する責務がある。`sleep(1s)` は CPU 負荷を抑えるための
+    /// 任意の間隔で、機能的な意味は持たない。
+    private static func runForever() async throws {
+        while true {
+            try await Task.sleep(for: .seconds(1))
+        }
+    }
+}
+
+/// `readSwiftGuidelines` ツールのディスパッチ責務を持つ。
+/// ツール定義の保持・引数検証委譲・取得・プレゼンテーション整形までを取りまとめる。
+struct GuidelinesToolHandler {
+    /// MCP に公開するツール定義。
+    /// `inputSchema` は MCP 仕様で JSON Schema 相当が要求されるため、最小構成の `type` と
+    /// `properties` のみを持たせている。
+    static let toolDefinition = Tool(
         name: "readSwiftGuidelines",
         description: "Swift API Design Guidelinesをswift.orgから読み込みます",
         inputSchema: .object([
@@ -64,6 +65,37 @@ struct SwiftGuidelinesMCP {
             ]),
         ])
     )
+
+    let fetcher: GuidelinesFetcher
+
+    init(fetcher: GuidelinesFetcher = GuidelinesFetcher()) {
+        self.fetcher = fetcher
+    }
+
+    func handle(params: CallTool.Parameters) async -> CallTool.Result {
+        guard params.name == GuidelinesToolHandler.toolDefinition.name else {
+            return CallTool.Result(
+                content: [.text(text: "Tool not found", annotations: nil, _meta: nil)],
+                isError: true
+            )
+        }
+        // 引数の検証（空文字列や空白のみの吸収）は `FetchScope.init` に委ねているため、ここでは
+        // 生の文字列を渡すだけでよい。
+        let scope = FetchScope(requestedSection: params.arguments?["section"]?.stringValue)
+        do {
+            let body = try await fetcher.fetch(scope: scope)
+            let text = GuidelinesResponseFormatter.format(body)
+            return CallTool.Result(
+                content: [.text(text: text, annotations: nil, _meta: nil)],
+                isError: false
+            )
+        } catch {
+            return CallTool.Result(
+                content: [.text(text: "エラー: \(error.localizedDescription)", annotations: nil, _meta: nil)],
+                isError: true
+            )
+        }
+    }
 }
 
 /// ガイドライン取得の対象範囲。
@@ -84,19 +116,25 @@ enum FetchScope {
 }
 
 /// 非空であることが型で保証されたセクション名。
+/// 保持する文字列は前後の空白を除去した正規化済みの表示用文字列。
 struct SectionName {
-    let value: String
+    let rawValue: String
 
     init?(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        self.value = trimmed
+        rawValue = trimmed
     }
 }
 
 /// swift.org から Swift API Design Guidelines の HTML を取得し、パーサに橋渡しする責務を持つ。
 struct GuidelinesFetcher {
-    static let defaultURL = URL(string: "https://swift.org/documentation/api-design-guidelines/")!
+    static let defaultURL: URL = {
+        guard let url = URL(string: "https://swift.org/documentation/api-design-guidelines/") else {
+            preconditionFailure("Swift API Design Guidelines の既定 URL が不正です")
+        }
+        return url
+    }()
 
     let url: URL
     let session: URLSession
@@ -112,29 +150,29 @@ struct GuidelinesFetcher {
         self.parser = parser
     }
 
-    /// ガイドラインを取得し、指定スコープで本文を抽出したうえで表示用テキストに整形して返す。
+    /// ガイドラインを取得し、指定スコープで本文を抽出した中間表現を返す。
+    /// プレゼンテーション整形は呼び出し側の責務とする。
     ///
     /// - Parameter scope: 全文取得か特定セクションかを指定する。
-    /// - Returns: MCP クライアントにそのまま提示できるプレーンテキスト。
+    /// - Returns: パース済みの本文中間表現 `ExtractedBody`。
     /// - Throws: レスポンスが HTTP でない、ステータスが 200 以外、UTF-8 デコードに失敗した場合に
     ///           `GuidelinesError` を送出する。
-    func fetch(scope: FetchScope) async throws -> String {
-        let html = try await fetchHTML()
-        let body = parser.extractBody(from: html, scope: scope)
-        return GuidelinesResponseFormatter.present(body)
+    func fetch(scope: FetchScope) async throws -> ExtractedBody {
+        let html = try await downloadHTML()
+        return parser.extract(from: html, scope: scope)
     }
 
-    private func fetchHTML() async throws -> String {
+    private func downloadHTML() async throws -> String {
         let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw GuidelinesError.unexpectedResponse
+            throw GuidelinesError.nonHTTPResponse
         }
         guard httpResponse.statusCode == 200 else {
-            throw GuidelinesError.httpStatus(httpResponse.statusCode)
+            throw GuidelinesError.unsuccessfulStatus(code: httpResponse.statusCode)
         }
         guard let html = String(data: data, encoding: .utf8) else {
-            throw GuidelinesError.invalidEncoding
+            throw GuidelinesError.decodingUTF8Failed
         }
         return html
     }
@@ -148,17 +186,22 @@ struct GuidelinesParser {
     /// 次見出しへ大きく踏み込まない範囲として 50 行を採用している。
     private static let sectionLineBudget = 50
 
+    /// セクションが見つからなかった場合に、代替として返すプレビュー文字数の上限。
+    /// 「何も返さない」より「本文冒頭を見せてユーザーが目視で検索キーワードを調整できる」ほうが
+    /// UX 上有用であり、MCP クライアント側の表示が破綻しない程度の量として 500 文字を採用。
+    private static let notFoundPreviewCharacterBudget = 500
+
     /// 指定スコープに応じて、HTML から本文領域を抽出した結果を返す。
     ///
     /// 本文の特定は次の順でフォールバックする（swift.org のテンプレ変更に耐性を持たせるため）:
     /// 1. `<main>` 要素があればその内部のみを対象にする。
     /// 2. なければ `<body>` 要素の内部を対象にする。
     /// 3. いずれも無ければ入力 HTML 全体を対象にする。
-    func extractBody(from html: String, scope: FetchScope) -> ExtractedBody {
-        let fullText = plainText(from: contentRegion(in: html))
+    func extract(from html: String, scope: FetchScope) -> ExtractedBody {
+        let fullText = plainText(fromHTML: contentRegion(in: html))
         switch scope {
         case .entireDocument:
-            return .entireDocument(fullText)
+            return .entireDocument(text: fullText)
         case let .section(name):
             return .section(name: name, result: lookupSection(named: name, in: fullText))
         }
@@ -166,9 +209,13 @@ struct GuidelinesParser {
 
     /// HTML タグ除去と主要な文字実体参照の展開を行い、改行は保持したプレーンテキストを返す。
     /// 行内の連続したスペース・タブのみ 1 つに圧縮する。完全な HTML でもフラグメントでも受け付ける。
-    /// 冪等ではない（すでにプレーンテキスト化済みの文字列を渡すと、実体参照以外の置換は無害だが
-    /// 意図せず再変換が走る点に注意）。
-    func plainText(from htmlFragment: String) -> String {
+    ///
+    /// 実体参照の対象は swift.org のガイドライン本文で実際に現れる定番 6 種のみに絞っている
+    /// （`&copy;` や `&ndash;` などはテンプレ上出現しないため対象外）。
+    /// 新規の参照が混入した場合はここに追記する。
+    ///
+    /// - Warning: 冪等ではない。既にプレーンテキスト化済みの文字列を渡すと意図せず再変換が走る。
+    func plainText(fromHTML htmlFragment: String) -> String {
         var text = htmlFragment
         text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
         text = text.replacingOccurrences(of: "&nbsp;", with: " ")
@@ -182,8 +229,13 @@ struct GuidelinesParser {
     }
 
     /// プレーンテキストから、指定セクションの本文候補を探索する。
+    ///
+    /// 探索は次の 2 段階でフォールバックする。どちらも空振りしたら `notFound` を返す。
+    /// 1. 見出し行マッチ: swift.org の見出しは基本プレーンテキストなので、行先頭一致で拾えるケースが大半。
+    /// 2. 本文中の部分一致: 見出しに記号・注釈・装飾が混じって 1 段目で拾えない場合の保険。
+    ///    「とにかく該当語が最初に現れた位置から返す」ことで取りこぼしを減らす。
     func lookupSection(named sectionName: SectionName, in text: String) -> SectionLookupResult {
-        let lowerName = sectionName.value.lowercased()
+        let lowerName = sectionName.rawValue.lowercased()
         let lines = text.components(separatedBy: .newlines)
 
         if let headingIndex = lines.firstIndex(where: { line in
@@ -195,18 +247,18 @@ struct GuidelinesParser {
             return afterPrefix.isEmpty || afterPrefix.first.map { $0.isWhitespace || $0 == ":" || $0 == ")" } ?? false
         }) {
             let body = lines[headingIndex...].prefix(Self.sectionLineBudget).joined(separator: "\n")
-            return .found(body)
+            return .found(body: body)
         }
 
-        if let range = text.range(of: sectionName.value, options: .caseInsensitive) {
+        if let range = text.range(of: sectionName.rawValue, options: .caseInsensitive) {
             let sectionStart = text[range.lowerBound...]
                 .components(separatedBy: .newlines)
                 .prefix(Self.sectionLineBudget)
                 .joined(separator: "\n")
-            return .found(sectionStart)
+            return .found(body: sectionStart)
         }
 
-        return .notFound(preview: String(text.prefix(500)))
+        return .notFound(preview: String(text.prefix(Self.notFoundPreviewCharacterBudget)))
     }
 
     /// 与えられた HTML から本文領域（`<main>` / `<body>`）の内側を抽出する。
@@ -239,7 +291,7 @@ struct GuidelinesParser {
 
 /// `GuidelinesParser` が抽出した本文をそのままの形で持ち、プレゼンテーション層に引き渡す中間表現。
 enum ExtractedBody {
-    case entireDocument(String)
+    case entireDocument(text: String)
     case section(name: SectionName, result: SectionLookupResult)
 }
 
@@ -247,39 +299,39 @@ enum ExtractedBody {
 /// - `found`: 抽出できたセクション本文。
 /// - `notFound`: 見つからなかった場合のフォールバック用プレビュー。
 enum SectionLookupResult {
-    case found(String)
+    case found(body: String)
     case notFound(preview: String)
 }
 
 /// MCP クライアントに提示する最終テキストを組み立てるプレゼンテーション層。
 /// ここでロケール依存の文面を集約することで、`GuidelinesParser` を純粋な抽出層に保つ。
 enum GuidelinesResponseFormatter {
-    static func present(_ body: ExtractedBody) -> String {
+    static func format(_ body: ExtractedBody) -> String {
         switch body {
         case let .entireDocument(text):
             text
         case let .section(name, .found(body)):
-            "セクション \"\(name.value)\" に関する内容:\n\n\(body)"
+            "セクション \"\(name.rawValue)\" に関する内容:\n\n\(body)"
         case let .section(name, .notFound(preview)):
-            "セクション \"\(name.value)\" が見つかりませんでした。\n\n利用可能な内容の一部:\n\(preview)"
+            "セクション \"\(name.rawValue)\" が見つかりませんでした。\n\n利用可能な内容の一部:\n\(preview)"
         }
     }
 }
 
 /// Swift API Design Guidelines の取得・処理時に発生しうるエラー。
 enum GuidelinesError: LocalizedError {
-    case unexpectedResponse
-    case httpStatus(Int)
-    case invalidEncoding
+    case nonHTTPResponse
+    case unsuccessfulStatus(code: Int)
+    case decodingUTF8Failed
 
     var errorDescription: String? {
         switch self {
-        case .unexpectedResponse:
+        case .nonHTTPResponse:
             "HTTPレスポンスが取得できませんでした"
-        case let .httpStatus(code):
+        case let .unsuccessfulStatus(code):
             "HTTPリクエストが失敗しました（ステータスコード: \(code)）"
-        case .invalidEncoding:
-            "エンコーディングエラーが発生しました"
+        case .decodingUTF8Failed:
+            "UTF-8デコードに失敗しました"
         }
     }
 }
