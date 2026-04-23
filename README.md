@@ -1,5 +1,7 @@
 # Swift Guidelines MCP Server
 
+[![Build](https://github.com/kokiTakashiki/SwiftGuidelinesMCP/actions/workflows/build.yml/badge.svg)](https://github.com/kokiTakashiki/SwiftGuidelinesMCP/actions/workflows/build.yml)
+
 Swift API Design Guidelinesを読み込めるMCP (Model Context Protocol) サーバーです。swift.orgからリアルタイムにガイドラインを取得できます。
 
 ## 機能
@@ -10,8 +12,8 @@ Swift API Design Guidelinesを読み込めるMCP (Model Context Protocol) サー
 
 ## 必要な環境
 
-- macOS 13.0以降
-- Swift 6.0以降（Xcode 16以降）
+- macOS 13.0 以降 または Linux（Ubuntu 22.04 で動作確認）
+- Swift 6.0 以降（macOS の場合は Xcode 16 以降）
 
 ## セットアップ
 
