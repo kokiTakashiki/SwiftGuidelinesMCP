@@ -9,6 +9,7 @@ Swift API Design Guidelinesを読み込めるMCP (Model Context Protocol) サー
 - **readSwiftGuidelines**: Swift API Design Guidelinesをswift.orgから読み込みます
   - オプションで特定のセクション（例: "Naming", "Clarity"）を指定して取得できます
   - セクション指定がない場合は、ガイドライン全体を返します
+  - 指定したセクションが見つからなかった場合は、本文冒頭のプレビューをフォールバックとして返します
 
 ## 必要な環境
 
@@ -78,8 +79,55 @@ SwiftGuidelinesMCP/
 ├── .swift-format          # swift-format / SwiftFormat の設定
 └── Sources/
     └── SwiftGuidelinesMCP/
-        └── Main.swift     # メイン実装
+        ├── Main.swift          # エントリポイント (@main)
+        ├── Tool/               # MCP 境界層 (引数検証・結果詰め替え)
+        ├── Domain/             # ドメイン型 (FetchScope / SectionName など)
+        ├── Fetching/           # HTML 取得 (GuidelinesFetcher)
+        ├── Parsing/            # HTML → プレーンテキスト → セクション抽出
+        ├── Presentation/       # 提示メッセージ整形 (ロケール依存文言を集約)
+        └── Errors/             # GuidelinesError
 ```
+
+## アーキテクチャ
+
+`Tool` 層を中心に、`Domain` / `Fetching` / `Parsing` / `Presentation` の各層が放射状に連携します。層同士は直接会話せず、境界を越えるたびに型が切り替わる (`FetchScope` → `RawHTML` → `GuidelinesContent` → `PresentedMessage`) ことで、不正な合成をコンパイル時に弾く設計です。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as MCPクライアント
+    participant Handler as Tool層<br/>GuidelinesToolHandler
+    participant Scope as Domain層<br/>FetchScope
+    participant Fetcher as Fetching層<br/>GuidelinesFetcher
+    participant Parser as Parsing層<br/>GuidelinesParser
+    participant Formatter as Presentation層<br/>GuidelinesResponseFormatter
+
+    Client->>Handler: CallTool(section?)
+    Handler->>Scope: 引数を正規化
+    Scope-->>Handler: FetchScope<br/>(.entireDocument / .section)
+
+    Handler->>Fetcher: fetch()
+    alt 取得成功
+        Fetcher-->>Handler: RawHTML
+        Handler->>Parser: extract(html, scope)
+        Note right of Parser: 本文領域抽出 → プレーン化<br/>→ スコープに応じてセクション検索
+        Parser-->>Handler: GuidelinesContent
+        Handler->>Formatter: format(content)
+        Formatter-->>Handler: PresentedMessage.success
+    else 取得/デコード失敗
+        Fetcher-->>Handler: throws GuidelinesError
+        Handler->>Formatter: formatError(error)
+        Formatter-->>Handler: PresentedMessage.failure
+    end
+
+    Handler-->>Client: CallTool.Result(isError)
+```
+
+設計上のポイント:
+
+- **境界は Tool 層のみ**: `throws` と `CallTool.Result.isError` の詰め替えは `GuidelinesToolHandler` に集約。
+- **ロケールは Presentation 層に閉じる**: `GuidelinesParser` は純粋な抽出層に保つ。
+- **パース内部の責務分解**: `GuidelinesParser` は `HTMLContentRegionExtractor` / `HTMLPlainTextRenderer` / `SectionFinder` を合成するファサード。
 
 ## 依存関係の更新
 
@@ -94,20 +142,20 @@ SwiftGuidelinesMCP/
 
 ## ライセンス
 
-このプロジェクトは、Swift API Design Guidelinesの内容を取得するためのツールです。取得されるガイドラインの内容は、Swift.orgのライセンスに従います。
+- 本ソフトウェア（ソースコード）は [MIT License](./LICENSE) の下で提供されます。
+- 本ツールが実行時に取得する **Swift API Design Guidelines の内容** は [Swift.org](https://swift.org/) が公開する著作物であり、[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) に従います。
+- **本リポジトリにはガイドライン本文を同梱していません**。各ユーザーの実行環境で都度 `https://swift.org/documentation/api-design-guidelines/` から取得する設計です。
+
+## 商標・免責
+
+- 「Swift」および Swift のロゴは Apple Inc. の商標です。
+- 本プロジェクトは Apple Inc. および Swift.org とは無関係の非公式ツールです。公式に承認・後援されているものではありません。
 
 ## 開発
 
 ### 依存関係
 
 - `modelcontextprotocol/swift-sdk`: MCPプロトコルの実装
-
-### 実装の詳細
-
-- MCPサーバーは `Server` クラスを使用して実装されています
-- `tools/list` と `tools/call` ハンドラーを実装しています
-- swift.orgからHTMLを取得し、テキストを抽出して返します
-- セクション指定がある場合は、該当セクションを検索して返します
 
 ## トラブルシューティング
 

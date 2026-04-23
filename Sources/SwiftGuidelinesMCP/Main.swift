@@ -12,9 +12,12 @@ struct SwiftGuidelinesMCP {
 
         await registerHandlers(on: server)
 
+        // 起動が失敗した場合は診断情報を stderr に出してプロセスを終了する方針。
+        // 再起動は上位プロセス（launchd / MCP クライアント側の再接続）に委ねる前提のため、
+        // ここではリトライを行わない。
         do {
             try await server.start(transport: StdioTransport())
-            try await runForever()
+            try await keepProcessAlive()
         } catch {
             // StdioTransport 使用時は stdout が JSON-RPC に占有されるため、診断出力は stderr に書く。
             let message = "サーバーの起動に失敗しました: \(error)\n"
@@ -31,15 +34,16 @@ struct SwiftGuidelinesMCP {
             ListTools.Result(tools: [GuidelinesToolHandler.toolDefinition])
         }
 
-        await server.withMethodHandler(CallTool.self) { params in
-            await guidelinesHandler.handle(params: params)
+        await server.withMethodHandler(CallTool.self) { parameters in
+            await guidelinesHandler.handle(parameters)
         }
     }
 
     /// MCP swift-sdk の `Server.start()` はサーバを内部タスクで起動して即座に返るため、
-    /// 呼び出し側でプロセス寿命を保持する責務がある。`sleep(1s)` は CPU 負荷を抑えるための
-    /// 任意の間隔で、機能的な意味は持たない。
-    private static func runForever() async throws {
+    /// 呼び出し側でプロセス寿命を保持する責務がある。本関数は「何かを動かす」のではなく
+    /// 「サーバが終了するまでプロセスを生かしておく」ためだけに存在する。
+    /// `sleep(1s)` は CPU 負荷を抑えるための任意の間隔で、機能的な意味は持たない。
+    private static func keepProcessAlive() async throws {
         while true {
             try await Task.sleep(for: .seconds(1))
         }
