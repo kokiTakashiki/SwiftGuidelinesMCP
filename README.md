@@ -81,6 +81,17 @@ SwiftGuidelinesMCP/
         └── Main.swift     # メイン実装
 ```
 
+## 依存関係の更新
+
+依存関係のアップデート検知には [Renovate](https://docs.renovatebot.com/) を利用しています。設定は [renovate.json](./renovate.json) を参照してください。
+
+対象:
+
+- Swift Package Manager (`Package.swift`)
+- GitHub Actions (`.github/workflows/*.yml`) — Docker イメージ (`swift:6.0-jammy` 等) を含む
+
+有効化するには、GitHub 上でリポジトリに [Renovate GitHub App](https://github.com/apps/renovate) をインストールしてください。
+
 ## ライセンス
 
 このプロジェクトは、Swift API Design Guidelinesの内容を取得するためのツールです。取得されるガイドラインの内容は、Swift.orgのライセンスに従います。

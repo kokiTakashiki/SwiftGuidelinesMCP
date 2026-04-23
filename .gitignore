@@ -7,3 +7,4 @@ DerivedData/
 .DS_Store
 .vscode/launch.json
 .claude/settings.json
+.vscode/settings.json
