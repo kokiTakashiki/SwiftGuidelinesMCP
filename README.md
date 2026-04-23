@@ -13,6 +13,14 @@ Swift API Design Guidelinesを読み込めるMCP (Model Context Protocol) サー
 - macOS 13.0以降
 - Swift 6.0以降（Xcode 16以降）
 
+## セットアップ
+
+開発ツール（SwiftFormat）をインストールします。
+
+```bash
+make setup
+```
+
 ## ビルド方法
 
 ```bash
@@ -23,26 +31,21 @@ make build
 
 ## 使用方法
 
-### Cursorでの設定
+### Cursor / Claude Desktop での設定
 
-1. Cursorの設定を開きます（`Cmd + ,`）
-2. MCPサーバーの設定セクションを開きます
-3. 以下の設定を追加します：
+1. Cursor または Claude Desktop の MCP 設定に以下を追記します（`command` はビルドした実行ファイルの絶対パス）:
 
 ```json
 {
   "mcpServers": {
     "swift-api-guidelines": {
-      "command": "/path/to/SwiftGuidelinesMCP/.build/release/SwiftGuidelinesMCP",
-      "transport": "stdio"
+      "command": "/path/to/SwiftGuidelinesMCP/.build/release/SwiftGuidelinesMCP"
     }
   }
 }
 ```
 
-**注意**: `/path/to/SwiftGuidelinesMCP` をプロジェクトの実際のパスに置き換えてください。
-
-4. Cursorを再起動します
+2. Cursor / Claude Desktop を再起動します
 
 ### 使用例
 
@@ -69,6 +72,8 @@ Cursorのチャットで、`@swift-guidelines` または `@swift-api-guidelines`
 ```
 SwiftGuidelinesMCP/
 ├── Package.swift          # Swift Package Managerの設定
+├── Makefile               # setup / build / format など
+├── .swift-format          # swift-format / SwiftFormat の設定
 └── Sources/
     └── SwiftGuidelinesMCP/
         └── Main.swift     # メイン実装
