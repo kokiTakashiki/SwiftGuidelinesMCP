@@ -1,7 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// swift.org から Swift API Design Guidelines の HTML を取得し、パーサに橋渡しする責務を持つ。
-struct GuidelinesFetcher {
+struct GuidelinesFetcher: Sendable {
     static let defaultURL: URL = {
         guard let url = URL(string: "https://swift.org/documentation/api-design-guidelines/") else {
             preconditionFailure("Swift API Design Guidelines の既定 URL が不正です")

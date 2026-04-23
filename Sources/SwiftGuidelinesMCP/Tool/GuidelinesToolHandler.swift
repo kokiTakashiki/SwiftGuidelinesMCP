@@ -3,7 +3,7 @@ import MCP
 
 /// `readSwiftGuidelines` ツールのディスパッチ責務を持つ。
 /// ツール定義の保持・引数検証委譲・取得・プレゼンテーション整形までを取りまとめる。
-struct GuidelinesToolHandler {
+struct GuidelinesToolHandler: Sendable {
     /// MCP に公開するツール定義。
     /// `inputSchema` は MCP 仕様で JSON Schema 相当が要求されるため、最小構成の `type` と
     /// `properties` のみを持たせている。
