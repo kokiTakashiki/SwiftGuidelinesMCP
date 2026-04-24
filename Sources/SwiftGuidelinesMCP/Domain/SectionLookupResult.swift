@@ -1,10 +1,11 @@
 /// セクション検索の結果。
-/// - `found`: 抽出できたセクション本文。
-/// - `notFound`: 見つからなかった場合のフォールバック用プレビュー。
 ///
-/// 2 つのケースで意味の異なる文字列を `SectionBody` / `NotFoundPreview` として型で区別し、
-/// 後段のプレゼンテーション層が両者を取り違えないよう保証する。
-enum SectionLookupResult {
-    case found(SectionBody)
-    case notFound(NotFoundPreview)
+/// 中身を `String` にしているのは、かつて `found(SectionBody)` / `notFound(NotFoundPreview)`
+/// と専用ラッパ型に分けていたが、enum case 自体が既に「見つかった／見つからなかった」を
+/// 判別しているため、型での二重判別になっていた経緯から。`SectionFinder` が `.found` には
+/// 非空文字列のみを入れる責務を負うことで、`SectionBody` の非空保証は型ではなく生成元に閉じている。
+enum SectionLookupResult: Equatable {
+    case found(String)
+    /// 見つからなかったときに UX のために提示する本文冒頭のプレビュー。空文字列もありうる。
+    case notFound(String)
 }

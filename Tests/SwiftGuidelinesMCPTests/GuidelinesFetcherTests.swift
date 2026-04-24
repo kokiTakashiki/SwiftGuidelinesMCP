@@ -112,7 +112,7 @@ struct GuidelinesFetcherTests {
         let fetcher = GuidelinesFetcher(url: stubURL, session: makeStubSession())
 
         _ = try await fetcher.fetch(
-            using: CacheValidators(etag: CacheValidators.ETag(rawValue: "\"abc\""), lastModified: nil)
+            using: CacheValidators(etag: "\"abc\"", lastModified: nil)
         )
 
         let request = try #require(URLProtocolStub.storage.recordedRequests().first)
@@ -130,7 +130,7 @@ struct GuidelinesFetcherTests {
         let fetcher = GuidelinesFetcher(url: stubURL, session: makeStubSession())
 
         _ = try await fetcher.fetch(
-            using: CacheValidators(etag: nil, lastModified: CacheValidators.LastModified(rawValue: "Wed, 21 Oct 2015 07:28:00 GMT"))
+            using: CacheValidators(etag: nil, lastModified: "Wed, 21 Oct 2015 07:28:00 GMT")
         )
 
         let request = try #require(URLProtocolStub.storage.recordedRequests().first)
@@ -149,8 +149,8 @@ struct GuidelinesFetcherTests {
 
         _ = try await fetcher.fetch(
             using: CacheValidators(
-                etag: CacheValidators.ETag(rawValue: "\"xyz\""),
-                lastModified: CacheValidators.LastModified(rawValue: "Wed, 21 Oct 2015 07:28:00 GMT")
+                etag: "\"xyz\"",
+                lastModified: "Wed, 21 Oct 2015 07:28:00 GMT"
             )
         )
 
@@ -170,7 +170,7 @@ struct GuidelinesFetcherTests {
         let fetcher = GuidelinesFetcher(url: stubURL, session: makeStubSession())
 
         let outcome = try await fetcher.fetch(
-            using: CacheValidators(etag: CacheValidators.ETag(rawValue: "\"v1\""), lastModified: nil)
+            using: CacheValidators(etag: "\"v1\"", lastModified: nil)
         )
 
         switch outcome {
@@ -198,8 +198,8 @@ struct GuidelinesFetcherTests {
         switch outcome {
         case let .fresh(html, validators):
             #expect(html.rawValue == "<html>ok</html>")
-            #expect(validators.etag?.rawValue == "\"v2\"")
-            #expect(validators.lastModified?.rawValue == "Thu, 22 Oct 2015 07:28:00 GMT")
+            #expect(validators.etag == "\"v2\"")
+            #expect(validators.lastModified == "Thu, 22 Oct 2015 07:28:00 GMT")
         case .notModified:
             Issue.record(".fresh を期待したが .notModified が返った")
         }

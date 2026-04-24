@@ -2,12 +2,15 @@ import Foundation
 
 /// 非空であることが型で保証されたセクション名。
 ///
-/// 保持する文字列は前後の空白を除去した正規化済みの値で、検索キーと表示の両用途で使う。
-/// 他のラッパ（`RawHTML` / `PlainText` など）と揃えてプロパティ名を `rawValue` に統一する。
+/// 非空保証が必要なのは、空文字列を検索キーにすると行頭一致やプレーンテキスト走査で
+/// **すべての行に前方一致** してしまい、最初のセクションが常にヒットする不正動作になるため。
+/// failable init で生入力（空白のみ等）を弾き、検索層に空文字列を到達させないことで防いでいる。
 struct SectionName: CustomStringConvertible, Equatable {
     let rawValue: String
 
-    init?(_ value: String) {
+    /// ラベル `requested:` は「未検証のユーザー入力からの narrowing 変換」という生成経路を
+    /// 呼び出し側に明示させる意図。すでに検証済みの値からの構築には使わせない含意がある。
+    init?(requested value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         rawValue = trimmed

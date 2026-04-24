@@ -3,22 +3,18 @@ import Foundation
     import FoundationNetworking
 #endif
 
-/// 条件付き GET（`If-None-Match` / `If-Modified-Since`）を行い、サーバの応答を
-/// `FetchOutcome` で返す取得層の抽象。`GuidelinesCache` からはこのプロトコル経由でのみ
-/// 呼ばれるため、テストではスタブに差し替えられる。
+/// 条件付き GET 取得層の抽象。`GuidelinesCache` からは常にこのプロトコル経由でしか
+/// 呼ばれないため、テストではネットワークを伴わないスタブに差し替えられる。
 protocol GuidelinesFetching: Sendable {
-    /// - Parameter validators: 直近取得で得た検証子。空なら通常の GET と同じ挙動。
-    /// - Returns: 200 なら `.fresh`、304 なら `.notModified`。
-    /// - Throws: HTTP でない／200・304 以外のステータス／UTF-8 デコード失敗時に `GuidelinesError`。
     func fetch(using validators: CacheValidators) async throws -> FetchOutcome
 }
 
-/// swift.org から Swift API Design Guidelines の HTML を取得する責務のみを持つ。
-/// パース・本文抽出・整形には関与せず、条件付き GET の成否を `FetchOutcome` に詰めて返す。
+/// swift.org から Swift API Design Guidelines の HTML を取得する。
+/// パース・本文抽出・整形には関与せず、責務を「条件付き GET の成否を返す」ことに限定している。
 struct GuidelinesFetcher: GuidelinesFetching {
-    /// 既定のガイドライン URL。リテラルが変わらない限り `URL(string:)` は成功し、
-    /// 失敗は到達不能なプログラマエラーとして `preconditionFailure` で即時クラッシュさせる
-    /// （リリースビルドでもここで止めることで、不正 URL のままサーバを起動し続けるのを防ぐ）。
+    /// リテラルが変わらない限り `URL(string:)` は失敗しないが、万一 nil になった場合は
+    /// 不正 URL のままサーバを起動し続けないよう即時クラッシュさせる。これはリリースビルドでも
+    /// 効くようあえて `preconditionFailure` を選んでいる（黙って失敗するより即時故障のほうが安全）。
     static let defaultURL: URL = {
         guard let url = URL(string: "https://swift.org/documentation/api-design-guidelines/") else {
             preconditionFailure("Swift API Design Guidelines の既定 URL が不正です")
@@ -34,21 +30,15 @@ struct GuidelinesFetcher: GuidelinesFetching {
         self.session = session ?? GuidelinesFetcher.makeSession()
     }
 
-    /// 条件付き GET を試みる。検証子が空の場合は通常の GET と同じ挙動になる。
-    ///
-    /// - Parameter validators: 直近取得で得た検証子。空なら条件付きヘッダを送らない。
-    /// - Returns: 200 なら `.fresh(html:validators:)`、304 なら `.notModified`。
-    /// - Throws: HTTP でないレスポンス／200・304 以外のステータス／UTF-8 デコード失敗時に
-    ///   対応する `GuidelinesError`。
     func fetch(using validators: CacheValidators = CacheValidators(etag: nil, lastModified: nil))
         async throws -> FetchOutcome
     {
         var request = URLRequest(url: url)
         if let etag = validators.etag {
-            request.addValue(etag.rawValue, forHTTPHeaderField: "If-None-Match")
+            request.addValue(etag, forHTTPHeaderField: "If-None-Match")
         }
         if let lastModified = validators.lastModified {
-            request.addValue(lastModified.rawValue, forHTTPHeaderField: "If-Modified-Since")
+            request.addValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
         }
 
         let (data, response) = try await session.data(for: request)
@@ -62,10 +52,11 @@ struct GuidelinesFetcher: GuidelinesFetching {
             guard let html = String(data: data, encoding: .utf8) else {
                 throw GuidelinesError.decodingUTF8Failed
             }
-            // `allHeaderFields` のキー大小文字ゆれを避けるため、`value(forHTTPHeaderField:)` で取り出す。
+            // `allHeaderFields` のキー大小文字ゆれ（"ETag" / "Etag" / "etag"）に巻き込まれないよう、
+            // 取得は必ず `value(forHTTPHeaderField:)` 経由にする。
             let responseValidators = CacheValidators(
-                etag: httpResponse.value(forHTTPHeaderField: "ETag").map(CacheValidators.ETag.init(rawValue:)),
-                lastModified: httpResponse.value(forHTTPHeaderField: "Last-Modified").map(CacheValidators.LastModified.init(rawValue:))
+                etag: httpResponse.value(forHTTPHeaderField: "ETag"),
+                lastModified: httpResponse.value(forHTTPHeaderField: "Last-Modified")
             )
             return .fresh(html: RawHTML(html), validators: responseValidators)
         case 304:
@@ -75,10 +66,11 @@ struct GuidelinesFetcher: GuidelinesFetching {
         }
     }
 
-    /// `URLSession.shared` では 304 応答を受けたときに組み込みの `URLCache` が
-    /// キャッシュ済み 200 レスポンスへ透過的に差し替えてしまい、`statusCode == 304` の
-    /// 分岐が一度も成立しない。条件付き GET を自前で制御するため、`URLCache` を
-    /// 無効化した専用セッションを構築する。
+    /// 専用セッションを構築している理由:
+    /// `URLSession.shared` は 304 応答を受けると組み込み `URLCache` がキャッシュ済み 200 応答へ
+    /// **透過的に差し替えてしまう**。そのため `statusCode == 304` の分岐が一度も成立せず、
+    /// 自前のキャッシュ層（`GuidelinesCache`）が条件付き GET の本来の意味を観測できなくなる。
+    /// `URLCache` を無効化し、URLSession 内部キャッシュにも頼らない設定でこれを回避する。
     private static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = nil

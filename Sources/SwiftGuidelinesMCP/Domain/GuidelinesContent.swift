@@ -1,6 +1,8 @@
-/// ガイドラインのパース結果を、プレゼンテーション層へそのまま引き渡すための中間表現。
-/// 旧名 `ExtractedBody` は「何の body なのか」が名前から読めず、HTML の `<body>` とも
-/// 混同されやすかったため、ガイドライン由来のコンテンツであることを明示する名前に改めている。
+/// パース層の抽出結果をプレゼンテーション層へ引き渡すための中間表現。
+///
+/// `GuidelinesParser` を「文字列→中間値」の純粋抽出に保ち、ロケール依存の文面組み立て
+/// （`GuidelinesResponseFormatter`）と分離するために設けている。両者の境界をこの enum に
+/// 集約することで、整形ルールが変わってもパース層に触らず差し替え可能。
 enum GuidelinesContent {
     case entireDocument(PlainText)
     case section(name: SectionName, lookup: SectionLookupResult)

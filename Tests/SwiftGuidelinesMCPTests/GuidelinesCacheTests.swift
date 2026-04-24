@@ -86,10 +86,7 @@ private actor StubFetcher: GuidelinesFetching {
             .outcome(
                 .fresh(
                     html: RawHTML(html),
-                    validators: CacheValidators(
-                        etag: etag.map(CacheValidators.ETag.init(rawValue:)),
-                        lastModified: lastModified.map(CacheValidators.LastModified.init(rawValue:))
-                    )
+                    validators: CacheValidators(etag: etag, lastModified: lastModified)
                 )
             )
         )
@@ -215,8 +212,8 @@ struct GuidelinesCacheTests {
 
         let validators = await stub.receivedValidators
         #expect(validators.count == 2)
-        #expect(validators[1].etag?.rawValue == "\"v1\"")
-        #expect(validators[1].lastModified?.rawValue == "Thu, 22 Oct 2015 07:28:00 GMT")
+        #expect(validators[1].etag == "\"v1\"")
+        #expect(validators[1].lastModified == "Thu, 22 Oct 2015 07:28:00 GMT")
     }
 
     @Test("revalidate が 304 なら fetchedAt が更新され再度 TTL 内として扱われる")
@@ -281,7 +278,7 @@ struct GuidelinesCacheTests {
 
         let validators = await stub.receivedValidators
         #expect(validators.count == 3)
-        #expect(validators[2].etag?.rawValue == "\"v2\"")
+        #expect(validators[2].etag == "\"v2\"")
     }
 
     @Test("revalidate が throw なら直前の html を返し logger を 1 回呼ぶ")
@@ -336,7 +333,7 @@ struct GuidelinesCacheTests {
 
         let stored = await cache.lastRevalidationFailure
         #expect(stored != nil)
-        #expect(stored?.description.contains("boom") == true)
+        #expect(stored?.localizedDescription.contains("boom") == true)
     }
 
     @Test("初回取得が throw ならエラーがそのまま伝播する")

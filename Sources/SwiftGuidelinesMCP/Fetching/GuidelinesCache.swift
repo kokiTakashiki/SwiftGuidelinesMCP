@@ -1,25 +1,31 @@
 import Foundation
 
 /// 短期 TTL + HTTP 条件付き GET によるキャッシュ層。
-/// `GuidelinesToolHandler` と `GuidelinesFetcher` の間に挟まり、
-/// 状態（最終取得結果 / 直近のエラー / 進行中リクエスト）を actor として閉じ込める。
 ///
-/// 責務:
+/// この層をわざわざ挟んでいる理由:
+/// - swift.org のガイドラインは滅多に更新されないため、毎回 HTTP リクエストするのは
+///   レイテンシ・帯域・先方サーバ負荷のいずれの面でも無駄が大きい。
+/// - 一方で「永続キャッシュ」にすると更新を取り逃がす。`If-None-Match` / `If-Modified-Since`
+///   を使えば、変更が無いときはサーバ側で 304 で済むため、ほぼ無料で鮮度を担保できる。
+/// - actor として状態（最終取得値・直近のエラー・進行中リクエスト）を一括で閉じ込めることで、
+///   複数同時呼び出しから守られる。
+///
+/// 振る舞いの方針:
 /// - TTL 内はキャッシュ即返し（ネットワーク非接続）。
-/// - TTL 超過後は検証子付きで再取得し、304 なら fetchedAt を更新、200 なら置換。
-/// - 再検証が失敗した場合は可用性優先で stale を返し、警告を `DiagnosticLogger` に委譲。
-/// - 同時呼び出しを in-flight Task で 1 本化し、二重 HTTP 発行を防ぐ。
+/// - TTL 超過後は検証子付きで再取得し、304 なら fetchedAt のみ更新、200 なら本文ごと置換。
+/// - 再検証失敗時は **可用性優先** で stale を返し、警告だけ `DiagnosticLogger` に流す。
+///   これは「数分前のガイドラインを返す」より「エラーで何も返せない」ほうが MCP クライアント
+///   利用体験を悪化させると判断したため。
+/// - 同時呼び出しは in-flight Task で 1 本化し、TTL 失効直後の同時アクセスでも HTTP は二重発行されない。
 actor GuidelinesCache {
     private let fetcher: any GuidelinesFetching
     private let freshnessWindow: TimeInterval
     private let now: @Sendable () -> Date
     private let logger: DiagnosticLogger
     private var cached: CachedGuidelines?
-    /// 直近の revalidation で捕捉した失敗。stale を返した直後のデバッグ確認に用いる。
-    /// 成功時は nil にリセットする。
-    private(set) var lastRevalidationFailure: RevalidationFailure?
-    /// coalescing 用。ネットワーク呼び出しが必要なパスでのみ生成し、
-    /// 後続呼び出しは同じ Task を await して二重リクエストを避ける。
+    /// 直近の revalidation 失敗。stale を返した直後のデバッグ確認用。成功時は nil にリセットする。
+    private(set) var lastRevalidationFailure: GuidelinesError?
+    /// in-flight Task。後続呼び出しは同じ Task を await して二重リクエストを避ける。
     private var inflight: Task<RawHTML, any Error>?
 
     init(
@@ -34,15 +40,6 @@ actor GuidelinesCache {
         self.logger = logger
     }
 
-    /// TTL 内であればキャッシュを即返し、超過していれば条件付き GET で再検証する。
-    ///
-    /// 再検証が失敗した場合は可用性を優先して直前のキャッシュ本文を返す（stale-while-error）。
-    /// 同時呼び出しは in-flight Task で 1 本化されるため、ここから HTTP が二重発行されることはない。
-    ///
-    /// - Returns: キャッシュヒット時はその本文、ミス時は新規取得した本文、再検証失敗時は
-    ///   直前に取得した stale な本文。
-    /// - Throws: 初回取得が失敗した場合は `fetcher.fetch(using:)` の送出するエラー。
-    ///   初回取得で 304 が返った場合は `GuidelinesError.unexpectedNotModifiedOnFirstFetch`。
     func currentGuidelines() async throws -> RawHTML {
         if let inflight {
             return try await inflight.value
@@ -55,9 +52,10 @@ actor GuidelinesCache {
             try await runFetchCycle()
         }
         inflight = task
-        // task.value は actor 関数の直後に await されるため、
-        // この関数の return 時点で task は完了済み。待機していた別タスクも
-        // 既に同じ task.value から結果を受け取っているため、ここで nil に戻しても競合は発生しない。
+        // ここで nil 戻しても競合しない理由: actor 関数なので `task.value` を直後に await している間、
+        // 他の呼び出しは同じ `inflight` を読み取って同じ Task を await している。`defer` 実行時には
+        // すべての待機者が結果を受け取り終わっているため、次の呼び出しが nil の inflight を見ても
+        // 安全に新しい Task を立ち上げられる。
         defer { inflight = nil }
         return try await task.value
     }
@@ -76,14 +74,12 @@ actor GuidelinesCache {
         )
         switch outcome {
         case let .fresh(html, validators):
-            cached = CachedGuidelines(
-                html: html,
-                validators: validators,
-                fetchedAt: now()
-            )
+            cached = CachedGuidelines(html: html, validators: validators, fetchedAt: now())
             lastRevalidationFailure = nil
             return html
         case .notModified:
+            // 検証子なしの初回 GET に対する 304 は HTTP 仕様違反。サーバ実装の不具合を疑うべき
+            // 状況なので明示的にエラーにし、stale を持っていない以上ここで諦める。
             throw GuidelinesError.unexpectedNotModifiedOnFirstFetch
         }
     }
@@ -98,17 +94,14 @@ actor GuidelinesCache {
                 lastRevalidationFailure = nil
                 return updated.html
             case let .fresh(html, validators):
-                let updated = CachedGuidelines(
-                    html: html,
-                    validators: validators,
-                    fetchedAt: now()
-                )
+                let updated = CachedGuidelines(html: html, validators: validators, fetchedAt: now())
                 cached = updated
                 lastRevalidationFailure = nil
                 return html
             }
         } catch {
-            let failure = RevalidationFailure(error)
+            // stale-while-error: ここで rethrow せずに stale を返すのが意図的な選択（型解説は冒頭参照）。
+            let failure = GuidelinesError(error)
             lastRevalidationFailure = failure
             logger.warn(Self.warningMessage(fetchedAt: previous.fetchedAt, failure: failure))
             return previous.html
@@ -116,10 +109,10 @@ actor GuidelinesCache {
     }
 
     /// - Important: `revalidation failed` と `fetchedAt=` のリテラルは
-    ///   `GuidelinesCacheTests` の部分一致アサートが依存する外部契約。
-    ///   変更する場合は対応するテストも合わせて更新する。
-    private static func warningMessage(fetchedAt: Date, failure: RevalidationFailure) -> String {
+    ///   `GuidelinesCacheTests` の部分一致アサートが依存する **外部契約**。文面を変える際は
+    ///   テストも合わせて更新すること。
+    private static func warningMessage(fetchedAt: Date, failure: GuidelinesError) -> String {
         let timestamp = ISO8601DateFormatter().string(from: fetchedAt)
-        return "[SwiftGuidelinesMCP] revalidation failed, returning stale cache (fetchedAt=\(timestamp)): \(failure.description)"
+        return "[SwiftGuidelinesMCP] revalidation failed, returning stale cache (fetchedAt=\(timestamp)): \(failure.localizedDescription)"
     }
 }

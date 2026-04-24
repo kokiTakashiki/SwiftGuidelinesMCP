@@ -1,10 +1,11 @@
 import Foundation
 
-/// HTML から Swift API Design Guidelines の本文を抽出するパーサ層のファサード。
+/// HTML から本文を抽出するパーサ層のファサード。
 ///
-/// 3 つの専門責務（領域抽出 / プレーンテキスト化 / セクション探索）を合成する薄い窓口で、
-/// プレゼンテーション層の責務（ユーザー向けメッセージ整形やローカライズ）は持たない。
-/// 合成箇所を 1 箇所に閉じておくことで、テスト時のスタブ差し替え窓口も兼ねる。
+/// 領域抽出 / プレーンテキスト化 / セクション探索の 3 責務を別々の型に分けたうえで、
+/// その合成だけをここに集約している。これにより、テストでは構成要素を個別に検証でき、
+/// 上位層（Tool ハンドラ）からは「HTML を投げると中間表現が返る」という単一窓口だけを
+/// 意識すれば済む。プレゼンテーション層の責務（ローカライズや文面整形）は持たない。
 struct GuidelinesParser {
     let regionExtractor: HTMLContentRegionExtractor
     let textRenderer: HTMLPlainTextRenderer
@@ -20,12 +21,6 @@ struct GuidelinesParser {
         self.sectionFinder = sectionFinder
     }
 
-    /// 指定スコープに応じて、HTML から本文を抽出した中間表現を返す。
-    ///
-    /// - Parameters:
-    ///   - html: パース対象の HTML。swift.org のガイドラインテンプレを想定。
-    ///   - scope: 抽出範囲（全体 or 指定セクション）。
-    /// - Returns: プレゼンテーション層にそのまま渡せる中間表現。
     func extract(from html: RawHTML, scope: FetchScope) -> GuidelinesContent {
         let fullText = textRenderer.render(regionExtractor.contentRegion(in: html))
         switch scope {

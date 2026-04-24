@@ -1,20 +1,21 @@
 import Foundation
 import MCP
 
-/// `readSwiftGuidelines` ツールのディスパッチ責務を持つ境界層。
-/// 取得 (`GuidelinesFetcher`) → パース (`GuidelinesParser` ファサードへ委譲) → 整形
-/// (`GuidelinesResponseFormatter`) の合成を担い、ドメインのエラーは境界でのみ
-/// `CallTool.Result` に詰め替える。
+/// `readSwiftGuidelines` ツールのディスパッチを担う境界層。
+///
+/// ここに「取得 → パース → 整形」の合成だけを置き、ドメインのエラーは **境界でのみ**
+/// `CallTool.Result` に詰め替える。これによってドメイン側は MCP の表現（`isError` フラグや
+/// `CallTool.Result` の構造）を知らずに済み、MCP SDK のバージョンアップで型が変わっても
+/// 影響範囲をこのファイルに閉じ込められる。
 struct GuidelinesToolHandler {
     /// MCP に公開するツール定義。
     ///
-    /// `inputSchema` は MCP 仕様で JSON Schema 相当が要求されるため、辞書リテラルで
-    /// 最小構成（`type` / `properties`）を組み立てている。MCP SDK が型安全な
-    /// スキーマビルダ API を提供した場合はそちらへ移行することを想定。
+    /// `inputSchema` を辞書リテラルで組んでいるのは、現状 MCP SDK が JSON Schema 相当の
+    /// 型安全ビルダ API を提供していないため。型安全な API が出たらそちらに移行する。
     ///
-    /// - Note: `section` の `description` は `FetchScope.init(requestedSection:)` と
-    ///   `SectionName.init(_:)` の「空文字列や空白のみは全体を返す」挙動に依存している。
-    ///   実装を変える場合はこの文面も揃えること。
+    /// - Note: `section` の説明文は `FetchScope.init(requestedSection:)` と
+    ///   `SectionName.init(requested:)` の「空文字列・空白のみは全体を返す」挙動に依存している。
+    ///   実装側を変える場合はこの文面も合わせて更新すること。
     static let toolDefinition = Tool(
         name: "readSwiftGuidelines",
         description: "Swift API Design Guidelinesをswift.orgから読み込みます",
@@ -50,24 +51,21 @@ struct GuidelinesToolHandler {
         return Self.makeResult(from: message)
     }
 
-    /// ツールの本処理。失敗は `throws` でそのまま伝播させ、`CallTool.Result` への詰め替えは
-    /// 呼び出し境界層 (`handle(_:)`) に限定する。これによりドメインのエラー表現と MCP
-    /// 仕様上のエラー表現を型で分離する。
+    /// 失敗を `throws` で素直に伝播させ、`CallTool.Result` への詰め替えを `handle(_:)` に集約することで、
+    /// ドメインのエラー表現と MCP のエラー表現の対応を 1 箇所だけに保つ。
     private func buildResponse(for parameters: CallTool.Parameters) async throws -> PresentedMessage {
         guard parameters.name == GuidelinesToolHandler.toolDefinition.name else {
             throw GuidelinesError.unknownTool(name: parameters.name)
         }
-        // 引数の検証（空文字列や空白のみの吸収）は `FetchScope.init` に委ねているため、ここでは
-        // 生の文字列を渡すだけでよい。
+        // 引数の検証（空文字列・空白の吸収）は `FetchScope.init` 側に任せる契約。
         let scope = FetchScope(requestedSection: parameters.arguments?["section"]?.stringValue)
         let html = try await cache.currentGuidelines()
         let content = parser.extract(from: html, scope: scope)
         return GuidelinesResponseFormatter.format(content)
     }
 
-    /// `PresentedMessage` を MCP の `CallTool.Result` に詰め替える。
-    /// 成功／失敗の意味と `isError` フラグの対応を 1 箇所に集約することで、
-    /// 「成功なのに `isError: true` を付ける」等の取り違え事故を排除する。
+    /// `success` / `failure` と `isError: false / true` の対応をここに集約することで、
+    /// 「成功なのに `isError: true`」のような取り違えを型レベルで起きなくしている。
     private static func makeResult(from message: PresentedMessage) -> CallTool.Result {
         switch message {
         case let .success(text):
