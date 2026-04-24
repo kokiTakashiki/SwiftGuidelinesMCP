@@ -9,10 +9,10 @@ struct HTMLContentRegionExtractor {
     /// 2. なければ `<body>` 要素の内部を対象にする。
     /// 3. いずれも無ければ入力 HTML 全体を対象にする。
     func contentRegion(in html: RawHTML) -> RawHTML {
-        if let extracted = innerHTML(of: "main", in: html.html) {
+        if let extracted = innerHTML(of: "main", in: html.rawValue) {
             return RawHTML(extracted)
         }
-        if let extracted = innerHTML(of: "body", in: html.html) {
+        if let extracted = innerHTML(of: "body", in: html.rawValue) {
             return RawHTML(extracted)
         }
         return html

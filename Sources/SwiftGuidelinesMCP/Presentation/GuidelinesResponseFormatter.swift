@@ -10,11 +10,11 @@ enum GuidelinesResponseFormatter {
     static func format(_ content: GuidelinesContent) -> PresentedMessage {
         switch content {
         case let .entireDocument(text):
-            .success(text.text)
+            .success(text.rawValue)
         case let .section(name, .found(body)):
-            .success("セクション \"\(name)\" に関する内容:\n\n\(body.text)")
+            .success("セクション \"\(name)\" に関する内容:\n\n\(body.rawValue)")
         case let .section(name, .notFound(preview)):
-            .success("セクション \"\(name)\" が見つかりませんでした。\n\n利用可能な内容の一部:\n\(preview.text)")
+            .success("セクション \"\(name)\" が見つかりませんでした。\n\n利用可能な内容の一部:\n\(preview.rawValue)")
         }
     }
 

@@ -1,20 +1,19 @@
 import Foundation
 
 /// 非空であることが型で保証されたセクション名。
-/// 保持する文字列は前後の空白を除去した正規化済みの表示用文字列。
-struct SectionName: CustomStringConvertible {
-    /// クライアントへの表示にそのまま使える正規化済みのセクション名。
-    /// `RawRepresentable` には準拠していないため、Swift で慣用の `rawValue` ではなく
-    /// 意味に沿った名前として `displayText` を公開している。
-    let displayText: String
+///
+/// 保持する文字列は前後の空白を除去した正規化済みの値で、検索キーと表示の両用途で使う。
+/// 他のラッパ（`RawHTML` / `PlainText` など）と揃えてプロパティ名を `rawValue` に統一する。
+struct SectionName: CustomStringConvertible, Equatable {
+    let rawValue: String
 
     init?(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        displayText = trimmed
+        rawValue = trimmed
     }
 
     var description: String {
-        displayText
+        rawValue
     }
 }

@@ -4,10 +4,10 @@
 /// `SectionBody` と異なり空文字列を許容する設計としている。これはガイドライン本文自体が
 /// 空になる極稀なケース（取得内容が空・タグ除去結果が空）でも「見つからなかった」状態を
 /// 表現可能にするためで、UX 上はプレビューが空のまま `notFound` 文面のみ提示される。
-struct NotFoundPreview {
-    let text: String
+struct NotFoundPreview: Equatable {
+    let rawValue: String
 
-    init(_ text: String) {
-        self.text = text
+    init(_ rawValue: String) {
+        self.rawValue = rawValue
     }
 }

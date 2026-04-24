@@ -22,11 +22,15 @@ struct SectionFinder {
     /// - Note: 2 段目は真の見出しではなく本文中の単なる言及にヒットする可能性があるが、
     ///   クライアント側が提示結果を見て検索語を調整できる UX 前提で、取りこぼし回避を優先している。
     ///
+    /// - Parameters:
+    ///   - name: 探索するセクションの表示用名称。
+    ///   - text: タグ除去済みのガイドライン本文。
     /// - Returns: 検索結果（見つかった本文、あるいは冒頭プレビュー）。
-    /// - Complexity: O(n)（n は `text.text` の文字数）。
+    /// - Complexity: O(n)（n は入力プレーンテキストの文字数）。
     func find(_ name: SectionName, in text: PlainText) -> SectionLookupResult {
-        let lowerName = name.displayText.lowercased()
-        let lines = text.text.components(separatedBy: .newlines)
+        let lowerName = name.rawValue.lowercased()
+        let plain = text.rawValue
+        let lines = plain.components(separatedBy: .newlines)
 
         if let headingIndex = lines.firstIndex(where: { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces).lowercased()
@@ -34,7 +38,8 @@ struct SectionFinder {
             let afterPrefix = trimmed.dropFirst(lowerName.count)
             // swift.org の見出しは基本プレーンテキストだが、稀に ":" や ")" が末尾に付くケースが
             // あるため、それらの直後までを見出し一致として許容する。
-            return afterPrefix.isEmpty || afterPrefix.first.map { $0.isWhitespace || $0 == ":" || $0 == ")" } ?? false
+            // `?? false` は「接尾辞が取れない＝見出し名より短い行」を不一致扱いにする保険。
+            return afterPrefix.isEmpty || afterPrefix.first.map(Self.isAllowedHeadingSuffix) ?? false
         }) {
             let body = lines[headingIndex...].prefix(Self.sectionLineLimit).joined(separator: "\n")
             if let sectionBody = SectionBody(body) {
@@ -42,8 +47,8 @@ struct SectionFinder {
             }
         }
 
-        if let range = text.text.range(of: name.displayText, options: .caseInsensitive) {
-            let sectionStart = text.text[range.lowerBound...]
+        if let range = plain.range(of: name.rawValue, options: .caseInsensitive) {
+            let sectionStart = plain[range.lowerBound...]
                 .components(separatedBy: .newlines)
                 .prefix(Self.sectionLineLimit)
                 .joined(separator: "\n")
@@ -52,6 +57,11 @@ struct SectionFinder {
             }
         }
 
-        return .notFound(NotFoundPreview(String(text.text.prefix(Self.notFoundPreviewCharacterLimit))))
+        return .notFound(NotFoundPreview(String(plain.prefix(Self.notFoundPreviewCharacterLimit))))
+    }
+
+    /// 見出し名直後に許容する 1 文字（空白・コロン・閉じ括弧）かどうか。
+    private static func isAllowedHeadingSuffix(_ character: Character) -> Bool {
+        character.isWhitespace || character == ":" || character == ")"
     }
 }

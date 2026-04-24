@@ -20,15 +20,16 @@ struct SwiftGuidelinesMCP {
             try await keepProcessAlive()
         } catch {
             // StdioTransport 使用時は stdout が JSON-RPC に占有されるため、診断出力は stderr に書く。
-            let message = "サーバーの起動に失敗しました: \(error)\n"
-            FileHandle.standardError.write(Data(message.utf8))
+            DiagnosticLogger.stderr.warn("サーバーの起動に失敗しました: \(error)")
         }
     }
 
     /// MCP サーバに公開するツールと、その呼び出しディスパッチを登録する。
     /// ツール追加時はここに一覧を増やし、`GuidelinesToolHandler` に倣って専用ハンドラ型を追加する。
     private static func registerHandlers(on server: Server) async {
-        let guidelinesHandler = GuidelinesToolHandler()
+        let fetcher = GuidelinesFetcher()
+        let cache = GuidelinesCache(fetcher: fetcher)
+        let guidelinesHandler = GuidelinesToolHandler(cache: cache)
 
         await server.withMethodHandler(ListTools.self) { _ in
             ListTools.Result(tools: [GuidelinesToolHandler.toolDefinition])

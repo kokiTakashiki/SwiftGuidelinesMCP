@@ -8,3 +8,4 @@ DerivedData/
 .vscode/launch.json
 .claude/settings.json
 .vscode/settings.json
+docs/design

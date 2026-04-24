@@ -7,6 +7,7 @@ enum GuidelinesError: LocalizedError {
     case unsuccessfulStatus(code: Int)
     case decodingUTF8Failed
     case unknownTool(name: String)
+    case unexpectedNotModifiedOnFirstFetch
 
     var errorDescription: String? {
         switch self {
@@ -18,6 +19,8 @@ enum GuidelinesError: LocalizedError {
             "UTF-8デコードに失敗しました"
         case let .unknownTool(name):
             "未登録のツールが呼び出されました: \(name)"
+        case .unexpectedNotModifiedOnFirstFetch:
+            "初回取得で 304 が返されました（サーバ仕様違反の可能性があります）"
         }
     }
 }

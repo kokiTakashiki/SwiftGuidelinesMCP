@@ -29,14 +29,14 @@ struct GuidelinesToolHandler {
         ])
     )
 
-    let fetcher: GuidelinesFetcher
+    let cache: GuidelinesCache
     let parser: GuidelinesParser
 
     init(
-        fetcher: GuidelinesFetcher = GuidelinesFetcher(),
+        cache: GuidelinesCache = GuidelinesCache(fetcher: GuidelinesFetcher()),
         parser: GuidelinesParser = GuidelinesParser()
     ) {
-        self.fetcher = fetcher
+        self.cache = cache
         self.parser = parser
     }
 
@@ -60,7 +60,7 @@ struct GuidelinesToolHandler {
         // 引数の検証（空文字列や空白のみの吸収）は `FetchScope.init` に委ねているため、ここでは
         // 生の文字列を渡すだけでよい。
         let scope = FetchScope(requestedSection: parameters.arguments?["section"]?.stringValue)
-        let html = try await fetcher.fetch()
+        let html = try await cache.currentGuidelines()
         let content = parser.extract(from: html, scope: scope)
         return GuidelinesResponseFormatter.format(content)
     }

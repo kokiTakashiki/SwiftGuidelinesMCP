@@ -18,20 +18,20 @@ struct HTMLPlainTextRenderer {
     ///
     /// - Parameter html: タグを含む HTML 断片。完全な HTML でもフラグメントでも受け付ける。
     /// - Returns: タグ除去済みのプレーンテキスト。
-    /// - Complexity: O(n)（n は `html.html` の文字数）。
+    /// - Complexity: O(n)（n は入力 HTML の文字数）。
     func render(_ html: RawHTML) -> PlainText {
-        var text = html.html
+        var text = html.rawValue
         text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        // `&amp;` の置換は他の参照より後ろに置く必要がある。先に `&amp;` を `&` に戻すと、
-        // 例えば `&amp;lt;` のような多重エスケープを連鎖デコードしてしまい、`<` と展開されて
-        // 原文の意図（`&lt;` という表記そのもの）が失われる。
+        // `&amp;` は必ず他の名前付き実体参照をすべて展開したあとに最後に置換する。
+        // 先に `&amp;` を `&` に戻すと、`&amp;lt;` のような多重エスケープが連鎖デコードされて
+        // `<` に化け、原文の意図（`&lt;` という表記そのもの）が失われる。
         text = text.replacingOccurrences(of: "&nbsp;", with: " ")
         text = text.replacingOccurrences(of: "&lt;", with: "<")
         text = text.replacingOccurrences(of: "&gt;", with: ">")
-        text = text.replacingOccurrences(of: "&amp;", with: "&")
         text = text.replacingOccurrences(of: "&quot;", with: "\"")
         text = text.replacingOccurrences(of: "&#39;", with: "'")
+        text = text.replacingOccurrences(of: "&amp;", with: "&")
         text = text.replacingOccurrences(of: "[ \t]+", with: " ", options: .regularExpression)
-        return PlainText(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        return PlainText(rendered: text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
