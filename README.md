@@ -14,15 +14,17 @@ Swift API Design Guidelinesを読み込めるMCP (Model Context Protocol) サー
 ## 必要な環境
 
 - macOS 13.0 以降 または Linux（Ubuntu 22.04 で動作確認）
-- Swift 6.0 以降（macOS の場合は Xcode 16 以降）
+- Swift 6.2 以降（macOS の場合は Xcode 26 以降）
 
 ## セットアップ
 
-開発ツール（SwiftFormat）をインストールします。
+開発ツール（SwiftFormat / swiftly + 最新 Swift ツールチェーン）をインストールします。
 
 ```bash
 make setup
 ```
+
+`.swift-version` で使用する Swift バージョン（現在 `6.3.1`）を固定しています。swiftly がこのファイルを読み取り、対応するツールチェーンを自動選択します。
 
 ## ビルド方法
 
@@ -66,7 +68,7 @@ Cursorのチャットで、`@swift-guidelines` または `@swift-api-guidelines`
 
 ## 技術スタック
 
-- **言語**: Swift 6.0+
+- **言語**: Swift 6.2+（ローカルでは swiftly により 6.3.1 を使用）
 - **フレームワーク**: [MCP Swift SDK](https://github.com/modelcontextprotocol/swift-sdk)
 - **通信方式**: stdio (標準入出力)
 
@@ -136,7 +138,7 @@ sequenceDiagram
 対象:
 
 - Swift Package Manager (`Package.swift`)
-- GitHub Actions (`.github/workflows/*.yml`) — Docker イメージ (`swift:6.0-jammy` 等) を含む
+- GitHub Actions (`.github/workflows/*.yml`) — Docker イメージ (`swift:6.2-jammy` 等) を含む
 
 有効化するには、GitHub 上でリポジトリに [Renovate GitHub App](https://github.com/apps/renovate) をインストールしてください。
 
