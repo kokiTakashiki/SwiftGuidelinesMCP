@@ -92,44 +92,32 @@ SwiftGuidelinesMCP/
 
 ## アーキテクチャ
 
-`Tool` 層を中心に、`Domain` / `Fetching` / `Parsing` / `Presentation` の各層が放射状に連携します。層同士は直接会話せず、境界を越えるたびに型が切り替わる (`FetchScope` → `RawHTML` → `GuidelinesContent` → `PresentedMessage`) ことで、不正な合成をコンパイル時に弾く設計です。
+AIツールは MCP プロトコル（stdio 経由）で本サーバーに接続し、公開ツール `readSwiftGuidelines` を呼び出します。サーバーはリクエストを受けるたびに swift.org から HTML を取得し、必要に応じて指定セクションを抽出してプレーンテキストで返します。
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as MCPクライアント
-    participant Handler as Tool層<br/>GuidelinesToolHandler
-    participant Scope as Domain層<br/>FetchScope
-    participant Fetcher as Fetching層<br/>GuidelinesFetcher
-    participant Parser as Parsing層<br/>GuidelinesParser
-    participant Formatter as Presentation層<br/>GuidelinesResponseFormatter
-
-    Client->>Handler: CallTool(section?)
-    Handler->>Scope: 引数を正規化
-    Scope-->>Handler: FetchScope<br/>(.entireDocument / .section)
-
-    Handler->>Fetcher: fetch()
-    alt 取得成功
-        Fetcher-->>Handler: RawHTML
-        Handler->>Parser: extract(html, scope)
-        Note right of Parser: 本文領域抽出 → プレーン化<br/>→ スコープに応じてセクション検索
-        Parser-->>Handler: GuidelinesContent
-        Handler->>Formatter: format(content)
-        Formatter-->>Handler: PresentedMessage.success
-    else 取得/デコード失敗
-        Fetcher-->>Handler: throws GuidelinesError
-        Handler->>Formatter: formatError(error)
-        Formatter-->>Handler: PresentedMessage.failure
+flowchart LR
+    subgraph AI["AIツール"]
+        direction TB
+        Cursor[Cursor]
+        Claude[Claude Desktop]
     end
 
-    Handler-->>Client: CallTool.Result(isError)
+    subgraph Server["SwiftGuidelinesMCP サーバー"]
+        Tool["readSwiftGuidelines<br/>(MCP Tool)"]
+    end
+
+    Web[("swift.org<br/>API Design Guidelines")]
+
+    AI <-->|"MCP / stdio"| Tool
+    Tool -->|"HTTPS GET"| Web
+    Web -.->|"HTML"| Tool
 ```
 
-設計上のポイント:
+設計のポイント:
 
-- **境界は Tool 層のみ**: `throws` と `CallTool.Result.isError` の詰め替えは `GuidelinesToolHandler` に集約。
-- **ロケールは Presentation 層に閉じる**: `GuidelinesParser` は純粋な抽出層に保つ。
-- **パース内部の責務分解**: `GuidelinesParser` は `HTMLContentRegionExtractor` / `HTMLPlainTextRenderer` / `SectionFinder` を合成するファサード。
+- **インターフェース**: 公開するのは `readSwiftGuidelines` ツール 1 つ。`section` 引数の有無で全文取得とセクション抽出を切り替えます。
+- **取得元**: 実行時に毎回 swift.org から取得し、リポジトリにはガイドライン本文を同梱しません。
+- **内部の層分け**: Tool 境界の内側は `Fetching`（HTML 取得）/ `Parsing`（プレーン化・セクション抽出）/ `Presentation`（提示文整形）に分離し、層をまたぐたびに型が変わることで不正な合成をコンパイル時に弾きます。
 
 ## 依存関係の更新
 
