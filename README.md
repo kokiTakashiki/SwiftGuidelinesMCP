@@ -143,9 +143,15 @@ flowchart LR
 
 ## 開発
 
-### 依存関係
+開発作業は `Makefile` 経由で実行します。利用可能なコマンドと役割は以下の通りです。
 
-- `modelcontextprotocol/swift-sdk`: MCPプロトコルの実装
+| コマンド | 役割 |
+| --- | --- |
+| `make help` | 利用可能なコマンドの一覧を表示します（デフォルトターゲット）。 |
+| `make setup` | 開発環境をセットアップします。Homebrew 経由で SwiftFormat と swiftly をインストールし、`.swift-version` に対応する Swift ツールチェーンを導入します。 |
+| `make build` | `swift build -c release` でリリースビルドを行います。実行ファイルは `.build/release/SwiftGuidelinesMCP` に出力されます。 |
+| `make format` | `Sources/` 配下のコードを SwiftFormat で整形します。 |
+| `make upgrade` | SwiftFormat と swiftly 本体、および Swift ツールチェーンを最新に更新します。 |
 
 ## トラブルシューティング
 
